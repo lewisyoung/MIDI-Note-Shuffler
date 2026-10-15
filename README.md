@@ -6,7 +6,9 @@ Free, offline tool that generates random MIDI note patterns from a note range yo
 
 ## Download
 
-Grab `MIDI Note Shuffler.html` from the [latest release](https://github.com/lewisyoung/MIDI-Note-Shuffler/releases/latest).
+Grab the zip from the [latest release](https://github.com/lewisyoung/MIDI-Note-Shuffler/releases/latest).
+
+**No install needed.** This is a single web page that opens in your browser (Safari, Chrome, Firefox.. whatever) and works fully offline. Unzip the download and double-click the file to open it in a browser window.
 
 ## What it does
 
