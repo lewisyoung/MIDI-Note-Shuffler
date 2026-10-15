@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MIDI Note Shuffler</title>
+<style>
+/* Layout: one working column — controls strip above a full-width piano roll, export bar beneath */
+:root{
+  --bg:#eeeee8; --panel:#f8f8f3; --ink:#1d1f1a; --muted:#6a6d61; --line:#d4d5ca;
+  --grid:#e4e5db; --grid-strong:#c3c5b6; --row-alt:#f1f1ea;
+  --accent:#6f8f1f; --accent-ink:#ffffff; --note:#8bb02a; --note-edge:#56701a; --off:#c9b9a6;
+  --play:#c4562b;
+  --f-display:"Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --f-body:"IBM Plex Sans", "Helvetica Neue", system-ui, sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#171915; --panel:#20231d; --ink:#e7e9df; --muted:#9a9e8f; --line:#353a2f;
+  --grid:#272b23; --grid-strong:#3d4335; --row-alt:#1c1f19;
+  --accent:#a3c83f; --accent-ink:#141610; --note:#93bb2c; --note-edge:#c6e46a; --off:#5d5348;
+  --play:#e8794a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#171915; --panel:#20231d; --ink:#e7e9df; --muted:#9a9e8f; --line:#353a2f;
+  --grid:#272b23; --grid-strong:#3d4335; --row-alt:#1c1f19;
+  --accent:#a3c83f; --accent-ink:#141610; --note:#93bb2c; --note-edge:#c6e46a; --off:#5d5348;
+  --play:#e8794a; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:14px;line-height:1.45}
+.wrap{max-width:1100px;margin:0 auto;padding-block:28px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:18px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 20px}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(26px,4vw,36px);letter-spacing:-.02em;margin:0;text-wrap:balance}
+.sub{color:var(--muted);max-width:62ch;margin:4px 0 0}
+.seedbox{display:flex;align-items:center;gap:8px;font-family:var(--f-mono);font-size:13px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:0}
+.group{padding:14px 16px;display:grid;gap:10px;align-content:start;border-right:1px solid var(--line);border-bottom:1px solid var(--line);min-width:0}
+.group h2{margin:0;font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+label{font-size:13px}
+select,input[type=number],input[type=text]{font:500 13px var(--f-mono);background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:5px 7px}
+input[type=number]{width:72px}
+input[type=range]{width:110px;accent-color:var(--accent)}
+input[type=checkbox]{accent-color:var(--accent);width:15px;height:15px}
+.val{font:500 12px var(--f-mono);color:var(--muted);min-width:3.5ch;text-align:right;font-variant-numeric:tabular-nums}
+button{font:600 13px var(--f-body);border-radius:7px;padding:8px 14px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--grid-strong)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+button.icon{padding:6px 9px;font-family:var(--f-mono)}
+.roll{overflow-x:auto;padding:12px 12px 6px}
+svg{display:block;width:100%;min-width:640px;height:auto}
+.rowlabel{cursor:pointer}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;padding:0 14px 12px;color:var(--muted);font-size:12px}
+.legend b{font:600 12px var(--f-mono);color:var(--ink);font-variant-numeric:tabular-nums}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 16px}
+.actions .spacer{flex:1}
+.status{font-size:12.5px;color:var(--muted);min-height:1.4em}
+.status.err{color:var(--play)}
+.notes{color:var(--muted);font-size:13px;max-width:72ch;display:grid;gap:6px}
+.notes p{margin:0}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head><body>
+
+<div class="wrap">
+  <header>
+    <div>
+      <h1>MIDI Note Shuffler</h1>
+      <p class="sub">Pick a range of notes and get a random arrangement of them, with no note played twice in a row, note lengths you control and room for gaps. Useful for triggering samplers, slicers and drum racks, or just for shaking loose new ideas. Click a note name in the roll to leave it out.</p>
+    </div>
+    <div class="seedbox">
+      <label for="seed">Seed</label>
+      <input type="text" id="seed" size="7" value="4127">
+      <button class="icon" id="dice" title="New random seed">⟳</button>
+    </div>
+  </header>
+
+  <section class="panel controls" aria-label="Settings">
+    <div class="group">
+      <h2>Region</h2>
+      <div class="row"><label for="bars">Length</label>
+        <select id="bars"><option value="1">1 bar</option><option value="2">2 bars</option><option value="4" selected>4 bars</option><option value="8">8 bars</option><option value="16">16 bars</option></select></div>
+      <div class="row"><label for="low">Lowest note</label><select id="low"></select></div>
+      <div class="row"><label for="high">Highest note</label><select id="high"></select></div>
+    </div>
+    <div class="group">
+      <h2>Note lengths</h2>
+      <div class="row"><label for="minLen">Shortest</label><select id="minLen"></select></div>
+      <div class="row"><label for="maxLen">Longest</label><select id="maxLen"></select></div>
+      <div class="row"><label for="musical">Musical values only</label><input type="checkbox" id="musical" checked></div>
+    </div>
+    <div class="group">
+      <h2>Gaps</h2>
+      <div class="row"><label for="gapPct">Chance of a gap</label><span class="row" style="gap:6px"><input type="range" id="gapPct" min="0" max="70" value="20"><span class="val" id="gapPctV">20%</span></span></div>
+      <div class="row"><label for="maxGap">Longest gap</label><select id="maxGap"></select></div>
+      <div class="row"><label for="downbeat">Start on the downbeat</label><input type="checkbox" id="downbeat" checked></div>
+    </div>
+    <div class="group">
+      <h2>Structure</h2>
+      <div class="row"><label for="phrase">Repeat a phrase</label>
+        <select id="phrase"><option value="0" selected>Off</option><option value="1">Every bar</option><option value="2">Every 2 bars</option></select></div>
+      <div class="row"><label for="mutate">Mutate repeats</label><span class="row" style="gap:6px"><input type="range" id="mutate" min="0" max="100" value="30"><span class="val" id="mutateV">30%</span></span></div>
+      <div class="row"><label for="velVar">Vary velocity</label><input type="checkbox" id="velVar"></div>
+    </div>
+  </section>
+
+  <section class="panel" aria-label="Preview">
+    <div class="roll" id="roll"></div>
+    <div class="legend" id="stats"></div>
+  </section>
+
+  <section class="panel actions" aria-label="Export">
+    <button class="primary" id="gen">Shuffle</button>
+    <button id="play">Play preview</button>
+    <label for="tempo" style="color:var(--muted)">BPM</label><input type="number" id="tempo" value="110" min="40" max="240">
+    <span class="spacer"></span>
+    <button id="save1">Save this .mid</button>
+    <span class="row" style="gap:6px"><button id="saveN">Save variations</button><input type="number" id="nVar" value="8" min="2" max="32" aria-label="Number of variations"></span>
+  </section>
+  <div class="status" id="status" role="status"></div>
+
+  <div class="notes">
+    <p>"Save this .mid" saves straight to Downloads. "Save variations" saves a .zip; double-click it in Finder to get the .mid files. Drag one onto a MIDI track in your DAW at bar 1.</p>
+    <p>Note names follow Logic and Ableton, where middle C (MIDI 60) is C3. Some apps call that note C4; the notes are the same, only the label differs. Same seed and settings always give the same pattern, so a seed you like is worth writing down.</p>
+  </div>
+</div>
+
+<script>
+(() => {
+const NAMES=["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const nn=m=>NAMES[m%12]+(Math.floor(m/12)-2);           // Logic: 60 = C3
+const LENS=[[1,"1/16"],[2,"1/8"],[3,"1/8 dotted"],[4,"1/4"],[6,"1/4 dotted"],[8,"1/2"],[12,"1/2 dotted"],[16,"1 bar"]];
+const $=id=>document.getElementById(id);
+const excluded=new Set();
+
+function fill(sel,opts,val){sel.innerHTML=opts.map(([v,t])=>`<option value="${v}"${v==val?" selected":""}>${t}</option>`).join("")}
+const noteOpts=[];for(let m=36;m<=84;m++)noteOpts.push([m,nn(m)]);
+fill($("low"),noteOpts,60);fill($("high"),noteOpts,67);
+fill($("minLen"),LENS,2);fill($("maxLen"),LENS,8);fill($("maxGap"),LENS.slice(0,6),4);
+
+function rng(seedStr){let h=1779033703^seedStr.length;for(let i=0;i<seedStr.length;i++){h=Math.imul(h^seedStr.charCodeAt(i),3432918353);h=h<<13|h>>>19}
+  let a=h>>>0;return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+
+function settings(){
+  let lo=+$("low").value,hi=+$("high").value;if(lo>hi)[lo,hi]=[hi,lo];
+  let mn=+$("minLen").value,mx=+$("maxLen").value;if(mn>mx)[mn,mx]=[mx,mn];
+  return{bars:+$("bars").value,lo,hi,mn,mx,musical:$("musical").checked,gap:+$("gapPct").value/100,maxGap:+$("maxGap").value,
+    downbeat:$("downbeat").checked,phrase:+$("phrase").value,mutate:+$("mutate").value/100,velVar:$("velVar").checked}
+}
+function pool(s){const p=[];for(let m=s.lo;m<=s.hi;m++)if(!excluded.has(m))p.push(m);return p}
+
+function generate(seed,s){
+  const R=rng(String(seed)),pick=a=>a[Math.floor(R()*a.length)];
+  const P=pool(s);if(P.length<2)return{notes:[],error:"Leave at least two notes switched on so they can alternate."};
+  const lenChoices=(lo,hi)=>{const c=s.musical?LENS.map(l=>l[0]).filter(v=>v>=lo&&v<=hi):Array.from({length:hi-lo+1},(_,i)=>lo+i);return c.length?c:[lo]};
+  const noteLens=lenChoices(s.mn,s.mx),gapLens=lenChoices(1,s.maxGap);
+  const vel=()=>s.velVar?Math.round(78+R()*42):100;
+  const span=(s.phrase&&s.phrase<s.bars?s.phrase:s.bars)*16;
+  const notes=[];let t=0,prev=-1,lastWasGap=false;
+  while(t<span){
+    const allowGap=!lastWasGap&&!(t===0&&s.downbeat);
+    if(allowGap&&R()<s.gap){t+=pick(gapLens);lastWasGap=true;continue}
+    let len=pick(noteLens);if(t+len>span)len=span-t;
+    const opts=P.filter(m=>m!==prev),pitch=pick(opts);
+    notes.push({t,len,pitch,vel:vel()});prev=pitch;t+=len;lastWasGap=false;
+  }
+  if(span<s.bars*16){                          // tile the phrase with mutations
+    const base=notes.slice();notes.length=0;
+    for(let off=0;off<s.bars*16;off+=span)for(const n of base){
+      const c={...n,t:n.t+off};
+      if(off>0&&R()<s.mutate){c.pitch=pick(P);c.vel=vel()}
+      notes.push(c)}
+  }
+  for(let i=1;i<notes.length;i++)if(notes[i].pitch===notes[i-1].pitch){   // no same note twice in a row
+    const nxt=notes[i+1]?notes[i+1].pitch:-1;const o=P.filter(m=>m!==notes[i-1].pitch&&m!==nxt);notes[i].pitch=pick(o.length?o:P.filter(m=>m!==notes[i-1].pitch))}
+  return{notes}
+}
+
+/* ---- MIDI + zip ---- */
+const PPQ=480,TPS=PPQ/4;
+function vlq(n){const b=[n&127];while(n>>=7)b.unshift((n&127)|128);return b}
+function midi(notes,name){
+  const ev=[];for(const n of notes){ev.push([n.t*TPS,1,0x90,n.pitch,n.vel]);ev.push([(n.t+n.len)*TPS,0,0x80,n.pitch,0])}
+  ev.sort((a,b)=>a[0]-b[0]||a[1]-b[1]);
+  const nm=[...new TextEncoder().encode(name)];
+  const tr=[0,0xFF,0x03,...vlq(nm.length),...nm,0,0xFF,0x58,4,4,2,24,8];let last=0;
+  for(const e of ev){tr.push(...vlq(e[0]-last),e[2],e[3],e[4]);last=e[0]}
+  tr.push(0,0xFF,0x2F,0);
+  const u32=n=>[n>>>24&255,n>>>16&255,n>>>8&255,n&255];
+  return new Uint8Array([0x4D,0x54,0x68,0x64,0,0,0,6,0,0,0,1,PPQ>>8,PPQ&255,0x4D,0x54,0x72,0x6B,...u32(tr.length),...tr]);
+}
+const CRC=(()=>{const t=new Uint32Array(256);for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^c>>>1:c>>>1;t[n]=c>>>0}return t})();
+const crc32=b=>{let c=0xFFFFFFFF;for(const x of b)c=CRC[(c^x)&255]^c>>>8;return(c^0xFFFFFFFF)>>>0};
+function zip(files){
+  const out=[],cen=[];let off=0;const le16=n=>[n&255,n>>8&255],le32=n=>[n&255,n>>8&255,n>>16&255,n>>>24&255];
+  for(const f of files){const nm=new TextEncoder().encode(f.name),c=crc32(f.data),sz=f.data.length;
+    const hd=[0x50,0x4B,3,4,...le16(20),0,0,0,0,0,0,0x21,0,...le32(c),...le32(sz),...le32(sz),...le16(nm.length),0,0,...nm];
+    out.push(new Uint8Array(hd),f.data);
+    cen.push(...[0x50,0x4B,1,2,...le16(20),...le16(20),0,0,0,0,0,0,0x21,0,...le32(c),...le32(sz),...le32(sz),...le16(nm.length),0,0,0,0,0,0,0,0,0,0,0,0,...le32(off),...nm]);
+    off+=hd.length+sz}
+  const end=[0x50,0x4B,5,6,0,0,0,0,...le16(files.length),...le16(files.length),...le32(cen.length),...le32(off),0,0];
+  return new Blob([...out,new Uint8Array(cen),new Uint8Array(end)]);
+}
+
+/* ---- render ---- */
+let current={notes:[]};
+function render(){
+  const s=settings();current=generate($("seed").value,s);
+  const steps=s.bars*16,rows=s.hi-s.lo+1,LW=46,RH=Math.max(16,Math.min(26,260/rows)),W=900,CW=(W-LW)/steps,H=rows*RH+22;
+  let g=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Piano roll preview of ${current.notes.length} notes">`;
+  for(let r=0;r<rows;r++){const m=s.hi-r,y=22+r*RH,black=NAMES[m%12].includes("#"),off=excluded.has(m);
+    g+=`<rect x="${LW}" y="${y}" width="${W-LW}" height="${RH}" fill="var(${black?"--row-alt":"--panel"})"/>`;
+    g+=`<g class="rowlabel" data-m="${m}" tabindex="0" role="button" aria-pressed="${!off}" aria-label="${nn(m)} ${off?"excluded":"included"}"><rect x="0" y="${y}" width="${LW-4}" height="${RH-1}" rx="3" fill="var(${off?"--bg":"--grid"})"/>`+
+      `<text x="${LW-10}" y="${y+RH/2+4}" text-anchor="end" font-family="var(--f-mono)" font-size="11" fill="var(${off?"--off":"--ink"})" ${off?'text-decoration="line-through"':""}>${nn(m)}</text></g>`}
+  for(let i=0;i<=steps;i++){const x=LW+i*CW,bar=i%16===0,beat=i%4===0;
+    g+=`<line x1="${x}" x2="${x}" y1="${bar?4:22}" y2="${H}" stroke="var(${bar?"--grid-strong":"--grid"})" stroke-width="${bar?1.2:beat?.9:.5}"/>`;
+    if(bar&&i<steps)g+=`<text x="${x+4}" y="15" font-family="var(--f-mono)" font-size="11" fill="var(--muted)">${i/16+1}</text>`}
+  for(const n of current.notes){const y=22+(s.hi-n.pitch)*RH+2,op=(0.55+0.45*(n.vel-78)/42).toFixed(2);
+    g+=`<rect x="${LW+n.t*CW+1}" y="${y}" width="${Math.max(2,n.len*CW-2)}" height="${RH-4}" rx="2" fill="var(--note)" fill-opacity="${s.velVar?op:1}" stroke="var(--note-edge)" stroke-width="1"><title>${nn(n.pitch)} · ${n.len}/16</title></rect>`}
+  g+=`<line id="ph" x1="${LW}" x2="${LW}" y1="0" y2="${H}" stroke="var(--play)" stroke-width="2" visibility="hidden"/></svg>`;
+  $("roll").innerHTML=g;
+  $("roll").querySelectorAll(".rowlabel").forEach(el=>{const tog=()=>{const m=+el.dataset.m;excluded.has(m)?excluded.delete(m):excluded.add(m);render()};
+    el.addEventListener("click",tog);el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();tog()}})});
+  const used=new Set(current.notes.map(n=>n.pitch)),filled=current.notes.reduce((a,n)=>a+n.len,0);
+  $("stats").innerHTML=current.error?`<span>${current.error}</span>`:
+    `<span><b>${current.notes.length}</b> notes</span><span><b>${used.size}</b> of ${pool(s).length} pitches used</span><span><b>${Math.round(100-filled/steps*100)}%</b> silence</span><span>range <b>${nn(s.lo)}–${nn(s.hi)}</b></span>`;
+  ["gapPct","mutate"].forEach(id=>$(id+"V").textContent=$(id).value+"%");
+}
+
+/* ---- playback ---- */
+let ac,playing=null;
+function stop(){if(!playing)return;playing.oscs.forEach(o=>{try{o.stop()}catch(e){}});cancelAnimationFrame(playing.raf);playing=null;$("play").textContent="Play preview";const ph=$("ph");if(ph)ph.setAttribute("visibility","hidden")}
+function play(){
+  if(playing){stop();return}
+  ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume();
+  const s=settings(),sec=60/(+$("tempo").value||110)/4,t0=ac.currentTime+.05,oscs=[];
+  for(const n of current.notes){const o=ac.createOscillator(),g=ac.createGain(),st=t0+n.t*sec,en=st+n.len*sec;
+    o.type="triangle";o.frequency.value=440*Math.pow(2,(n.pitch-69)/12);
+    g.gain.setValueAtTime(0,st);g.gain.linearRampToValueAtTime(.18*n.vel/110,st+.008);g.gain.setValueAtTime(.18*n.vel/110,en-.02);g.gain.linearRampToValueAtTime(0,en);
+    o.connect(g).connect(ac.destination);o.start(st);o.stop(en+.02);oscs.push(o)}
+  const total=s.bars*16*sec;$("play").textContent="Stop";
+  playing={oscs,raf:0};const svg=$("roll").querySelector("svg"),ph=$("ph"),vb=svg.viewBox.baseVal,LW=46;
+  ph.setAttribute("visibility","visible");
+  const tick=()=>{const p=(ac.currentTime-t0)/total;if(p>=1){stop();return}const x=LW+Math.max(0,p)*(vb.width-LW);ph.setAttribute("x1",x);ph.setAttribute("x2",x);playing.raf=requestAnimationFrame(tick)};tick();
+}
+
+/* ---- save ---- */
+function status(msg,err){const el=$("status");el.textContent=msg;el.className="status"+(err?" err":"")}
+function saveBlob(blob,name){const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},1000);status("Saved "+name+" to your Downloads folder.")}
+$("save1").onclick=()=>{if(current.error)return;const n=`shuffle-${$("seed").value}.mid`;saveBlob(new Blob([midi(current.notes,n)],{type:"audio/midi"}),n)};
+$("saveN").onclick=()=>{const s=settings(),k=Math.max(2,Math.min(32,+$("nVar").value||8)),base=$("seed").value,files=[];
+  for(let i=1;i<=k;i++){const sd=base+"-"+i,r=generate(sd,s);if(r.error){status(r.error,true);return}const n=`shuffle-${sd}.mid`;files.push({name:n,data:midi(r.notes,n)})}
+  saveBlob(zip(files),`shuffle-${base}-x${k}.zip`)};
+
+$("gen").onclick=$("dice").onclick=()=>{stop();$("seed").value=String(Math.floor(Math.random()*9000)+1000);render()};
+$("play").onclick=play;
+document.querySelectorAll(".controls select,.controls input,#seed").forEach(el=>el.addEventListener("input",()=>{stop();render()}));
+render();
+})();
+</script>
+
+</body></html>
