@@ -32,4 +32,6 @@ Note names use the C3 = middle C convention (Logic, Ableton). Some apps label th
 
 ## License
 
-MIT. Use it however you like.
+Music and MIDI you make with it are entirely yours, including for commercial releases.
+
+Free to use, share and adapt for non-commercial purposes, with credit. You may not sell this tool or include it in a paid product. Licensed under [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/).
